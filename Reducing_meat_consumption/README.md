@@ -4,9 +4,7 @@ Lee Moore, Sonal Thakkar, Peter Trenkwalder
 <br> W241 - Causality and Experiments
 
 ## Objective
-Conduct an experiment using Mechanical Turk to understand what kind of evidence \
-would be most impactful to reduce global intended meat consumption.
+Conduct an experiment using Mechanical Turk to understand what kind of evidence would be most impactful to reduce global intended meat consumption.
 
 ## Tools
-Designed a Qualtrics Survey administered on Amazon's Mechanical Turk. Statistical \
-analysis conducted using R.
+Designed a Qualtrics Survey administered on Amazon's Mechanical Turk. Statistical analysis conducted using R.
