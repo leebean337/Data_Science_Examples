@@ -1,0 +1,741 @@
+---
+title: "W241 Summer 2019 Section 3 Final Project"
+author: "Lee Moore, Sonal Thakkar, Peter Trenkwalder"
+date: "7/28/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+```{r}
+#dependencies
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+library(lmtest)
+library(sandwich)
+library(MASS)
+library(pwr)
+library(stargazer)
+```
+
+###pre-experiment power calculation
+```{r}
+#assuming 50% effect size with 75 people in each group
+pwr.t.test(n=75,d=.5)
+```
+
+we get .86 power which is sufficient and the number of people in each group seems reasonable based on pilot results
+
+### Pre-Processing Data from Qualtrics Survey csv
+```{r}
+#import raw (text) csv file from qualtrics
+data   <-read.csv("survey_raw.csv")
+dt <- data.table(data)
+
+#remove first two value rows of headers (i think first observation comes from Pete)
+dt <- dt[c(4:864),]
+#rename columns
+setnames(dt, "Q1", "consumption")
+setnames(dt, "Q2", "intent")
+setnames(dt, "Q3", "gender")
+setnames(dt, "Q4", "age")
+setnames(dt, "Q5", "income")
+setnames(dt, "Q6", "educ")
+setnames(dt,"Duration..in.seconds.","duration")
+
+#collapse treatment assignment variables into one
+dt[ , treatment_val := as.numeric(FL_15_DO) + as.numeric(FL_23_DO) + as.numeric(FL_29_DO) +
+      as.numeric(FL_35_DO) - 6]
+#relabel treatments
+dt[ , treatment_1 := ifelse(treatment_val %in%  c(1,2,3), "A",
+                            ifelse(treatment_val %in%  c(4,5,6),"B",
+                                   ifelse(treatment_val %in%  c(7,8,9), "C", "X")))]
+
+dt[ , treatment_2 := ifelse(treatment_val %in%  c(4,7,10), "A",
+                            ifelse(treatment_val %in%  c(1,8,11),"B",
+                                   ifelse(treatment_val %in%  c(2,5,12), "C", "X")))]
+
+dt[ , treatment_both := paste(treatment_1,treatment_2)]
+
+#variables to check if they answered read question correctly
+dt[, read1_correct :=   ifelse(treatment_1=="A" & Q7  == 'Increase your risk of heart attacks and strokes' |
+                               treatment_1=="B" & Q10 == 'Increase your risk of premature death' |
+                               treatment_1=="C" & Q13 == 'increasing greenhouse gases' |
+                               treatment_1=="X" & Q16 == 'Baby animals',1,0)]
+dt[, read2_correct :=   ifelse(treatment_2=="A" & Q7  == 'Increase your risk of heart attacks and strokes' |
+                               treatment_2=="B" & Q10 == 'Increase your risk of premature death' |
+                               treatment_2=="C" & Q13 == 'increasing greenhouse gases' |
+                               treatment_2=="X" & Q16 == 'Baby animals',1,0)]
+dt[, both_correct := 1*(read1_correct==1 & read2_correct==1)]
+
+#renaming baseline intentions
+dt[ , base.intention := ifelse(intent=='Trying to consume more meat, milk and/or eggs',"More",ifelse(intent=='Trying to consume less meat , milk and/or eggs',"Less","Same"))]
+
+dt[ , base.consumption := ifelse(consumption=='Low Meat Eater (less than 1 meal a day with meat, some days I don’t eat meat at all)',"Low",ifelse(consumption=='Moderate Meat Eater (1 meal a day with meat)',"Moderate",ifelse(consumption=='Vegetarian (no meat, but some milk or eggs)',"Vegetarian","Regular")))]
+
+#drop vegans (can come back to look at them later if we think its valuable)
+dt <- dt[consumption!='Vegan (no animal-related products)',]
+
+#have to do this in dplyr - creating primary and secondary outcome columns (text) for visuals
+dt = dt %>% mutate(outcome_1 = if_else(treatment_1=="A",Q9,
+                            if_else(treatment_1=="B",Q12,
+                            if_else(treatment_1=="C",Q15,Q18))),
+                   outcome_2 = if_else(treatment_2=="A",Q9,
+                            if_else(treatment_2=="B",Q12,
+                            if_else(treatment_2=="C",Q15,Q18))))
+
+dt = dt %>% mutate(outcome_1 = ifelse(outcome_1=='Low Meat Eater (less than 1 meal a day with meat, some days I don’t eat meat at all)',"Low",ifelse(outcome_1=='Moderate Meat Eater (1 meal a day with meat)',"Moderate",ifelse(outcome_1=='Vegetarian (no meat, but some animal-related products)',"Vegetarian",if_else(outcome_1 == 'Vegan (no meat or animal-related products)','Vegan',"Regular")))),
+                      outcome_2 = ifelse(outcome_2=='Low Meat Eater (less than 1 meal a day with meat, some days I don’t eat meat at all)',"Low",ifelse(outcome_2=='Moderate Meat Eater (1 meal a day with meat)',"Moderate",ifelse(outcome_2=='Vegetarian (no meat, but some animal-related products)',"Vegetarian",if_else(outcome_1 == 'Vegan (no meat or animal-related products)','Vegan',"Regular")))))
+
+#creating base, primary and secondary numerical outcomes (vegans are excluded from baseline)
+dt = dt %>% mutate(base.rank = if_else(base.consumption == 'Vegetarian',2,
+                                       if_else(base.consumption == 'Low',3,
+                                               if_else(base.consumption == 'Moderate',4,5))),
+                   outcome_1.rank = if_else(outcome_1 == 'Vegan',1,
+                                       if_else(outcome_1 == 'Vegetarian',2,
+                                               if_else(outcome_1 == 'Low',3,
+                                                       if_else(outcome_1 == 'Moderate', 4,5)))),
+                   outcome_2.rank = if_else(outcome_2 == 'Vegan',1,
+                                       if_else(outcome_2 == 'Vegetarian',2,
+                                               if_else(outcome_2 == 'Low',3,
+                                                       if_else(outcome_2 == 'Moderate', 4,5)))))
+
+#----Binarizing Variables-----#
+
+#adding binary outcomes for any decline in meat consumption and binarizing base intentions
+dt = dt %>% mutate(base.intention.binary = if_else(base.intention == 'Less',1,0),
+                   outcome.binary = if_else(base.rank - outcome_1.rank > 0,1,0),
+                   outcome.binary_2 = if_else(base.rank - outcome_2.rank > 0,1,0),
+                   outcome.binary_text = if_else(outcome.binary == 1,'Less','Same or More'))
+
+#binarizing treatment group
+dt = dt %>% mutate(treatment.group = if_else(treatment_1 == 'X',0,1))
+
+```
+
+
+
+### EDA Section
+
+```{r}
+#compliers by panel
+left_join(dt %>% group_by(treatment_1) %>% tally(), 
+          dt %>% group_by(treatment_1) %>% summarise(compliers = sum(both_correct))) %>%
+  mutate(compliance_rate = compliers/n)
+
+#panel counts by baseline
+#View(dt %>% group_by(base.consumption,treatment_1,both_correct) %>% tally())
+
+```
+
+**compliance by panel**
+```{r}
+#reshaping output for plotting
+
+cmpl_df = rbind(dt %>% group_by(treatment_1) %>% tally() %>% mutate(status = c("assigned")) %>% rename(total = n),
+dt %>% group_by(treatment_1) %>% summarise(total = sum(both_correct)) %>% mutate(status = c("complied")))
+
+ggplot(data = cmpl_df,aes(treatment_1,total, fill = status)) + 
+  geom_bar(position = 'dodge', stat = "identity") +
+  ggtitle("Compliance by Panel", subtitle = "Treatments(A,B,C) vs Control (X)") +
+  theme(plot.title = element_text(size = 9),
+        axis.title=element_text(size=9),
+        plot.subtitle = element_text(hjust = .5,size = 9),
+        legend.title=element_text(size=10)) +
+  xlab("Panel Group")
+
+```
+
+
+**prop test for equality betwenn panel X compliers and panel A/B/C compliers**
+
+```{r}
+prop.test(x=c(701, 265), n=c(1274,428))
+
+```
+
+
+**checking for covariate balance for apples-apples compatibility**
+```{r}
+gen_d = dt %>% 
+  filter(both_correct == 1) %>% 
+  group_by(treatment_1,gender) %>% 
+  tally() %>% 
+  mutate(perc = n/sum(n))
+
+gg_gen_d = ggplot(data = gen_d,aes(treatment_1,perc, fill = gender)) + 
+  geom_bar(position = 'fill', stat = "identity") +
+  ggtitle("Panel Balance by Gender", subtitle = "Treatments(A,B,C) vs Control (X)") +
+  theme(plot.title = element_text(size = 9),
+        axis.title=element_text(size=9),
+        plot.subtitle = element_text(hjust = .5,size = 9),
+        legend.title=element_text(size=10)) +
+  xlab("Panel Group")
+
+age_d = dt %>% 
+  filter(both_correct == 1) %>% 
+  group_by(treatment_1,age) %>% 
+  tally() %>% 
+  mutate(perc = n/sum(n))
+
+gg_age_d = ggplot(data = age_d,aes(treatment_1,perc, fill = age)) + 
+  geom_bar(position = 'fill', stat = "identity") +
+  ggtitle("Panel Balance by Age", subtitle = "Treatments(A,B,C) vs Control (X)") +
+  theme(plot.title = element_text(size = 9),
+        axis.title=element_text(size=9),
+        plot.subtitle = element_text(hjust = .5,size = 9),
+        legend.title=element_text(size=10)) +
+  xlab("Panel Group")
+
+
+plot_grid(gg_gen_d,gg_age_d,ncol = 1, nrow = 2,scale = 1)
+```
+
+```{r}
+inc_d = dt %>% 
+  filter(both_correct == 1) %>% 
+  group_by(treatment_1,income) %>% 
+  tally() %>% 
+  mutate(perc = n/sum(n))
+
+gg_inc_d = ggplot(data = inc_d,aes(treatment_1,perc, fill = income)) + 
+  geom_bar(position = 'fill', stat = "identity") +
+  ggtitle("Panel Balance by Income", subtitle = "Treatments(A,B,C) vs Control (X)") +
+  theme(plot.title = element_text(size = 9),
+        axis.title=element_text(size=9),
+        plot.subtitle = element_text(hjust = .5,size = 9),
+        legend.title=element_text(size=10)) +
+  xlab("Panel Group")
+
+edu_d = dt %>% 
+  filter(both_correct == 1) %>% 
+  group_by(treatment_1,educ) %>% 
+  tally() %>% 
+  mutate(perc = n/sum(n))
+
+gg_edu_d = ggplot(data = edu_d,aes(treatment_1,perc, fill = educ)) + 
+  geom_bar(position = 'fill', stat = "identity") +
+  ggtitle("Panel Balance by Education", subtitle = "Treatments(A,B,C) vs Control (X)") +
+  theme(plot.title = element_text(size = 9),
+        axis.title=element_text(size=9),
+        plot.subtitle = element_text(hjust = .5,size = 9),
+        legend.title=element_text(size=10)) +
+  xlab("Panel Group")
+
+
+plot_grid(gg_inc_d,gg_edu_d,ncol = 1, nrow = 2,scale = 1)
+
+```
+
+
+**Generally, most compliers seem to intend to eat the same amount**
+```{r}
+ggplot(data = dt %>% filter(both_correct == 1),
+      aes(base.intention,fill= treatment_1)) + geom_bar(position = 'dodge') + 
+  coord_flip() +
+  theme(legend.position = "top")
+```
+**compliers intentions of meat consumption at baseline**
+```{r}
+panel_base = dt %>% 
+  filter(both_correct == 1) %>% 
+  group_by(treatment_1,base.intention) %>% 
+  tally() %>% 
+  mutate(perc = n/sum(n))
+
+ggplot(data = panel_base,aes(treatment_1,perc, fill = base.intention)) + 
+  geom_bar(position = 'fill', stat = "identity") + coord_flip() +
+  ggtitle("Intentions at Baseline", subtitle = "Treatments(A,B,C) vs Control (X)") +
+  theme(plot.title = element_text(size = 9),
+        axis.title=element_text(size=9),
+        plot.subtitle = element_text(hjust = .5,size = 9),
+        legend.title=element_text(size=10)) +
+  xlab("Panel Group")+
+  ylab("Percent of Compliers Who Prefer to Eat the Same, More, or Less at Baseline")
+
+```
+
+
+
+```{r}
+#baseline intentions for future meat consumption
+base_perc_intent_less = nrow(dt %>% filter(both_correct == 1 & base.intention == 'Less'))/nrow(dt%>% filter(both_correct == 1))*100
+base_perc_intent_same = nrow(dt %>% filter(both_correct == 1 & base.intention == 'Same'))/nrow(dt %>% filter(both_correct == 1))*100
+base_perc_intent_more = nrow(dt %>% filter(both_correct == 1 & base.intention == 'More'))/nrow(dt %>% filter(both_correct == 1))*100
+
+print(paste0("From a baseline, ",base_perc_intent_same," percent of compliers intend to eat the same amount of meat and ",base_perc_intent_less," percent of compliers intend to eat less meat"))
+```
+
+**omparison of treatment panels vs control for each baseline group**
+```{r}
+#--------comparison of treatment panels vs control for each baseline group-----------#
+#-------regular meat eaters
+reg_meat = dt %>% filter(base.consumption == "Regular" & both_correct == 1) %>%
+  group_by(treatment_1,outcome.binary_text) %>% tally() %>% mutate(perc = n/sum(n))
+#marking control same or more proportion
+reg_cntr_mark = dt %>% filter(base.consumption == "Regular" & both_correct == 1) %>%
+  group_by(treatment_1,outcome.binary_text) %>% 
+  tally() %>% 
+  mutate(perc = n/sum(n)) %>% 
+  filter(treatment_1 == 'X' & outcome.binary_text == 'Same or More') %>% pull()
+#-------moderate meat eaters
+mod_meat = dt %>% filter(base.consumption == "Moderate" & both_correct == 1) %>%
+  group_by(treatment_1,outcome.binary_text) %>% tally() %>% mutate(perc = n/sum(n))
+
+mod_cntr_mark = dt %>% filter(base.consumption == "Moderate" & both_correct == 1) %>%
+  group_by(treatment_1,outcome.binary_text) %>% 
+  tally() %>% 
+  mutate(perc = n/sum(n)) %>% 
+  filter(treatment_1 == 'X' & outcome.binary_text == 'Same or More') %>% pull()
+#-------low meat eaters
+low_meat = dt %>% filter(base.consumption == "Low" & both_correct == 1) %>%
+  group_by(treatment_1,outcome.binary_text) %>% tally() %>% mutate(perc = n/sum(n))
+
+low_cntr_mark = dt %>% filter(base.consumption == "Low" & both_correct == 1) %>%
+  group_by(treatment_1,outcome.binary_text) %>% 
+  tally() %>% 
+  mutate(perc = n/sum(n)) %>% 
+  filter(treatment_1 == 'X' & outcome.binary_text == 'Same or More') %>% pull()
+#-------vegetariancs   
+vegi = dt %>% filter(base.consumption == "Vegetarian" & both_correct == 1) %>%
+  group_by(treatment_1,outcome.binary_text) %>% tally() %>% mutate(perc = n/sum(n))
+
+vegi_cntr_mark = dt %>% filter(base.consumption == "Vegetarian" & both_correct == 1) %>%
+  group_by(treatment_1,outcome.binary_text) %>% 
+  tally() %>% 
+  mutate(perc = n/sum(n)) %>% 
+  filter(treatment_1 == 'X' & outcome.binary_text == 'Same or More') %>% pull()
+
+
+```
+
+
+```{r}
+g_reg = ggplot(aes(treatment_1,perc, fill = outcome.binary_text), data = reg_meat) + 
+  geom_bar(position = "fill",stat = "identity") + 
+  geom_hline(yintercept = reg_cntr_mark, linetype = "dashed") +
+  ggtitle("Regular Meat Eaters at Baseline ", subtitle = "Treatments(A,B,C) vs Control (X)") +
+  theme(plot.title = element_text(size = 9),
+        axis.title=element_text(size=9),
+        plot.subtitle = element_text(hjust = .5,size = 9),
+        legend.title=element_text(size=10)) +
+  xlab("Panel Group") +
+  ylab("Perc in Post Exposure Group") +
+  guides(fill = guide_legend(title = "Preference Post Exposure"))
+
+g_mod = ggplot(aes(treatment_1,perc, fill = outcome.binary_text), data = mod_meat) + 
+  geom_bar(position = "fill",stat = "identity") + 
+  geom_hline(yintercept = mod_cntr_mark, linetype = "dashed") +
+  ggtitle("Moderate Meat Eaters at Baseline ", subtitle = "Treatments(A,B,C) vs Control (X)") +
+  theme(plot.title = element_text(size = 9),
+        axis.title=element_text(size=9),
+        plot.subtitle = element_text(hjust = .5,size = 9),
+        legend.title=element_text(size=10)) +
+  xlab("Panel Group") +
+  ylab("Perc in Post Exposure Group") +
+  guides(fill = guide_legend(title = "Preference Post Exposure"))
+
+g_low = ggplot(aes(treatment_1,perc, fill = outcome.binary_text), data = low_meat) + 
+  geom_bar(position = "fill",stat = "identity") + 
+  geom_hline(yintercept = low_cntr_mark, linetype = "dashed") +
+  ggtitle("Low Meat Eaters at Baseline ", subtitle = "Treatments(A,B,C) vs Control (X)") +
+  theme(plot.title = element_text(size = 9),
+        axis.title=element_text(size=9),
+        plot.subtitle = element_text(hjust = .5,size = 9),
+        legend.title=element_text(size=10)) +
+  xlab("Panel Group") +
+  ylab("Perc in Post Exposure Group") +
+  guides(fill = guide_legend(title = "Preference Post Exposure"))
+
+g_veg = ggplot(aes(treatment_1,perc, fill = outcome.binary_text), data = vegi) + 
+  geom_bar(position = "fill",stat = "identity") + 
+  geom_hline(yintercept = vegi_cntr_mark, linetype = "dashed") +
+  ggtitle("Vegetarians at Baseline", subtitle = "Treatments(A,B,C) vs Control (X)") +
+  theme(plot.title = element_text(size = 9),
+        axis.title=element_text(size=9),
+        plot.subtitle = element_text(hjust = .5,size = 9),
+        legend.title=element_text(size=10)) +
+  xlab("Panel Group") +
+  ylab("Perc in Post Exposure Group") +
+  guides(fill = guide_legend(title = "Preference Post Exposure"))
+
+```
+
+
+```{r}
+#plotting above ggplot objects
+plot_grid(g_reg,g_mod,ncol = 1, nrow = 2)
+
+```
+
+```{r}
+#plotting above ggplot objects
+plot_grid(g_low,g_veg,ncol = 1, nrow = 2)
+
+```
+
+
+
+Generally, we can see that those who tend to consume more meat seem likely to lower their consumption after exposure to our panel content compared to those in the control group. And these changes could be more pronounced for panels A & C relative to control
+
+**Sentiment Analysis**
+
+This was done in python
+```
+import glob
+import pandas as pd
+import numpy as np
+import matplotlib
+import matplotlib.pyplot as plt
+import seaborn as sns
+from wordcloud import WordCloud,STOPWORDS
+%matplotlib inline
+
+s = pd.read_csv('survey_processed')
+
+less = s[(s['both_correct'] == 1) & (s['outcome.binary'] == 1) & (s['treatment.group'] == 1)].filter(['Q8','Q11','Q14','Q17'])
+same_more = s[(s['both_correct'] == 1) & (s['outcome.binary'] == 0)& (s['treatment.group'] == 1)].filter(['Q8','Q11','Q14','Q17'])
+
+# sentiment
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+analyser = SentimentIntensityAnalyzer()
+
+def sentiment_analyzer_scores(sentence):
+    '''returns as a dict positve, negative, neutral, and component score'''
+    score = analyser.polarity_scores(sentence)
+    return score
+
+def textify(col):
+    text_list = []
+    for line in s[col]:
+        if isinstance(line,np.nan):
+            pass
+        else:
+            text_list.append
+            
+a = [str(s) for s in same_more['Q8'].values if pd.notnull(s)]
+b = [str(s) for s in same_more['Q11'].values if pd.notnull(s)]
+c = [str(s) for s in same_more['Q14'].values if pd.notnull(s)]
+same_more_list = a+b+c
+x = [str(s) for s in less['Q8'].values if pd.notnull(s)]
+y = [str(s) for s in less['Q11'].values if pd.notnull(s)]
+z = [str(s) for s in less['Q14'].values if pd.notnull(s)]
+less_list = x+y+z
+
+negative_l = []
+neutral_l = []
+positive_l = []
+compound_l = []
+
+for s in less_list:
+    score = sentiment_analyzer_scores(s)
+    negative_l.append(score['neg'])
+    neutral_l.append(score['neu'])
+    positive_l.append(score['pos'])
+    compound_l.append(score['compound'])
+
+#avg sentiment in those who would want to eat less after exposure
+print(np.mean(negative_l),np.mean(neutral_l),np.mean(positive_l))
+
+negative = []
+neutral = []
+positive = []
+compound = []
+
+#avg sentiment in those who would want to eat more or the same after exposure
+for s in same_more_list:
+    score = sentiment_analyzer_scores(s)
+    negative.append(score['neg'])
+    neutral.append(score['neu'])
+    positive.append(score['pos'])
+    compound.append(score['compound'])
+
+print(np.mean(negative),np.mean(neutral),np.mean(positive))
+
+
+#running t-test for true difference between group's sentiment
+from scipy import stats
+
+stats.ttest_ind(negative_l,negative)
+
+```
+
+### Analysis: Linear Model on Binary Outcome for Complier ATE controlling for baseline intentions
+
+```{r}
+
+#need to relevel to ensure placebo is base comparison
+dt$treatment_1 = relevel(factor(dt$treatment_1),ref = "X")
+
+#simple linear model on binary outcome (decrease or not) among compliers with baseline covariate
+lm_fit = lm(outcome.binary ~ treatment_1 + base.intention.binary,
+            data = dt %>% filter(both_correct ==1))
+
+#using Robust Standard Errors
+coef_tst = coeftest(lm_fit,vcovHC(lm_fit))
+coef_tst
+
+```
+
+
+```{r}
+#----Confidence Interval with Robust Standard Errors----#
+ci95_low_vec = c()
+ci95_high_vec = c()
+for (i in c(2:4)) {
+  ate = coef_tst[i,1]
+  rbse = coef_tst[i,2]
+  low = round(ate - 1.96*rbse,3)
+  high = round(ate + 1.96*rbse,3)
+  ci95_low_vec = c(ci95_low_vec,low)
+  ci95_high_vec = c(ci95_high_vec,high)
+
+}
+
+data_frame(treatment_group = c('A','B','C'),ate_low = ci95_low_vec,ate_high = ci95_high_vec)
+
+
+```
+
+All panels have a significant effect on reporting a decrease in meat consumption compared to placebo after controlling for baseline intentions. For instance, Panel A increases reporting a decrease in meat consumption between 5 to 30 percentage points above the placebo with 95% confidence. So there's a net positive impact (if the aim is to lower meat consumption)
+
+
+**Interaction test between treatment 1 and treatment 2**
+```{r}
+#need to relevel to ensure placebo is base comparison
+dt$treatment_1 = relevel(factor(dt$treatment_1),ref = "X")
+
+#simple linear model on binary outcome (decrease or not) among compliers with baseline covariate
+lm_fit = lm(outcome.binary ~ treatment_1 + base.intention.binary,
+            data = dt %>% filter(both_correct ==1))
+
+lm_t1_t2_int = lm(outcome.binary ~ treatment_1  + treatment_1*treatment_2 + base.intention.binary,
+            data = dt %>% filter(both_correct ==1))
+
+anova(lm_fit,lm_t1_t2_int,test = "F")
+
+```
+Based on the F-score, we'd fail to reject the null hypothesis that the two models are the same, so we can evaluate treatment_2 independently of treatment_1
+
+
+**Evaluating treatment_2 independently**
+
+```{r}
+#---looking at CACE for treatment 2 and outcome 2-----#
+
+dt$treatment_2 = relevel(factor(dt$treatment_2),ref = "X")
+#simple linear model on binary outcome (decrease or not) among compliers for treatment 2
+lm_fit2 = lm(outcome.binary_2 ~ treatment_2 + base.intention.binary, data = dt %>% filter(both_correct ==1))
+
+#robust standard errors
+coeftest(lm_fit2,vcovHC(lm_fit2))
+
+```
+
+Here, treatment A appears to have the only significant impact with respect to lowering reported meat consumption. Treatment B is close, but we can see that its 95 confidence interval would include 0 in its range and treatment C is statistically not close to being significant. We may be seeing this change in effect between Panels when they're exposed first in the sequence vs second in the sequence because our compliance rate drops from sequence 1 to 2. Perhaps, respondents are losing patience or don't feel the pay is commensurate with the time effort
+
+```{r}
+#compliance rate when 1st question answered correctly
+first = dt %>% group_by(treatment_1) %>% summarise(first_correct.compliance_rate = sum(read1_correct)/sum(!is.na(read1_correct)))
+#compliance rate when both questions answered correctly
+both = dt %>% group_by(treatment_1) %>% summarise(both_correct.compliance_rate = sum(both_correct)/sum(!is.na(both_correct)))
+
+left_join(first,both, by = "treatment_1")
+
+```
+
+
+**panel effect after partialling out effect of other demographic covariates and considering heterogenous treatment effects**
+```{r}
+#other demographic variables
+#simple linear model on binary outcome (decrease or not) among compliers
+lm_fit3 = lm(outcome.binary ~ treatment_1 + base.intention.binary + age + gender + income + educ,
+            data = dt %>% filter(both_correct ==1))
+
+#summary(lm_fit3)
+coeftest(lm_fit3)
+
+
+```
+
+Covariates don't seem to pass on any information that would help us better model effect on outcomes and there aren't any significant heteregenous treatment effects, except for panel B's effect on lowering meat consumption among high school students relative to college students. With that said, we'd expect this result to happen 1 out of every 20 samples so given that nothing else is significant i think this might just be a false positive.
+
+```{r}
+lm_fit3 = lm(outcome.binary ~ treatment_1 + base.intention.binary + treatment_1*age + treatment_1*gender + treatment_1*income + treatment_1*educ,
+            data = dt %>% filter(both_correct ==1))
+
+#summary(lm_fit3)
+coeftest(lm_fit3)
+
+```
+
+** Results by category for 1st panel vs placebo**
+
+For Vegetarians
+```{r}
+
+#relevel to ensure placebo is base comparison
+dt$treatment_1 = relevel(factor(dt$treatment_1),ref = "X")
+#simple linear model on binary outcome (decrease or not) among compliers with baseline covariate
+lm_fit_veg = lm(outcome.binary ~ treatment_1 + base.intention.binary,
+            data = dt %>% filter(both_correct ==1 & base.consumption == 'Vegetarian'))
+
+#using Robust Standard Errors
+coef_tst_veg = coeftest(lm_fit_veg,vcovHC(lm_fit_veg))
+coef_tst_veg
+
+```
+For Low Meat Eaters
+```{r}
+
+#relevel to ensure placebo is base comparison
+dt$treatment_1 = relevel(factor(dt$treatment_1),ref = "X")
+#simple linear model on binary outcome (decrease or not) among compliers with baseline covariate
+lm_fit_low = lm(outcome.binary ~ treatment_1 + base.intention.binary,
+            data = dt %>% filter(both_correct ==1 & base.consumption == 'Low'))
+
+#using Robust Standard Errors
+coef_tst_low = coeftest(lm_fit_low,vcovHC(lm_fit_low))
+coef_tst_low
+
+```
+
+For Moderate Meat Eaters
+```{r}
+
+#relevel to ensure placebo is base comparison
+dt$treatment_1 = relevel(factor(dt$treatment_1),ref = "X")
+#simple linear model on binary outcome (decrease or not) among compliers with baseline covariate
+lm_fit_mod = lm(outcome.binary ~ treatment_1 + base.intention.binary,
+            data = dt %>% filter(both_correct ==1 & base.consumption == 'Moderate'))
+
+#using Robust Standard Errors
+coef_tst_moderate = coeftest(lm_fit_mod,vcovHC(lm_fit_mod))
+coef_tst_moderate
+
+```
+For Regular Meat Eaters
+
+```{r}
+
+#relevel to ensure placebo is base comparison
+dt$treatment_1 = relevel(factor(dt$treatment_1),ref = "X")
+#simple linear model on binary outcome (decrease or not) among compliers with baseline covariate
+lm_fit_reg = lm(outcome.binary ~ treatment_1 + base.intention.binary,
+            data = dt %>% filter(both_correct ==1 & base.consumption == 'Regular'))
+
+#using Robust Standard Errors
+coef_tst_regular = coeftest(lm_fit_reg,vcovHC(lm_fit_reg))
+coef_tst_regular
+
+```
+
+Consolidating into stargazer tabel for comparions
+```{r}
+stargazer(coef_tst_regular, coef_tst_moderate, coef_tst_low, coef_tst_veg, column.labels = c("Regular", "Moderate", "Low", "Vegetarian"), suppress.errors = FALSE, summary = FALSE, type = 'text')
+
+```
+
+**Comparing whether or not some panels have a greater effect on lowering meat consumption than others**
+
+```{r}
+#Panel A as base
+dt$treatment_1 = relevel(factor(dt$treatment_1),ref = "A")
+
+#simple linear model on binary outcome (decrease or not) among compliers
+lm_fit = lm(outcome.binary ~ treatment_1,
+            data = dt %>% filter(both_correct ==1))
+
+coeftest(lm_fit,vcovHC(lm_fit))
+```
+
+
+```{r}
+#Panel B as base
+dt$treatment_1 = relevel(factor(dt$treatment_1),ref = "B")
+
+#simple linear model on binary outcome (decrease or not) among compliers
+lm_fit = lm(outcome.binary ~ treatment_1,
+            data = dt %>% filter(both_correct ==1))
+#obust standard errors
+coeftest(lm_fit,vcovHC(lm_fit))
+```
+
+
+```{r}
+#Panel C as base
+dt$treatment_1 = relevel(factor(dt$treatment_1),ref = "C")
+
+#simple linear model on binary outcome (decrease or not) among compliers
+lm_fit = lm(outcome.binary ~ treatment_1,
+            data = dt %>% filter(both_correct ==1))
+#obust standard errors
+coeftest(lm_fit,vcovHC(lm_fit))
+```
+
+The only panel that is statistially significant when comparing the panels to each other is the placebo/control panel which is good to see.
+
+
+###Analysis: Ordinal Logistic Regression
+
+resource: https://data.library.virginia.edu/fitting-and-interpreting-a-proportional-odds-model/
+
+**cumulative probabilities for compliers exposed to Panel A**
+```{r}
+#complier panel A treat effect with categorical levels (less,same,more)
+polr_fit = polr(factor(outcome_1, levels = c("Vegan","Vegetarian","Low","Moderate","Regular")) ~ treatment.group +  base.intention.binary,data=dt %>% filter(treatment_1 == 'A' | treatment_1 == 'X') %>% filter(both_correct == 1), Hess = TRUE)
+
+
+#treatment
+exp(polr_fit$zeta - polr_fit$coefficients)/(1 + exp(polr_fit$zeta - polr_fit$coefficients))
+
+#control
+exp(polr_fit$zeta)/(1 + exp(polr_fit$zeta))
+
+
+```
+**fitting categorical outcomes and baseline variables on polr model**
+```{r}
+#releveling baseline consumption and fitting polr model 
+dt$base.consumption = relevel(factor(dt$base.consumption),ref = "Vegetarian")
+
+polr_fit = polr(factor(outcome_1, levels = c("Vegan","Vegetarian","Low","Moderate","Regular")) ~ treatment_1 + base.intention.binary + base.consumption,data=dt %>% filter(both_correct == 1), Hess = TRUE)
+```
+
+```{r}
+summary(polr_fit)
+
+```
+**probabilities of being in each category after panel exposure for someone who was a regular meat eater at baseline with no intention of lowering their meat eating habits**
+```{r}
+#generating probabilities 
+a = predict(polr_fit,newdata = data.frame(treatment_1="A",base.consumption = "Regular",base.intention.binary = 0),type="p")
+b = predict(polr_fit,newdata = data.frame(treatment_1="B",base.consumption = "Regular",base.intention.binary = 0),type="p")
+c = predict(polr_fit,newdata = data.frame(treatment_1="C",base.consumption = "Regular",base.intention.binary = 0),type="p")
+x = predict(polr_fit,newdata = data.frame(treatment_1="X",base.consumption = "Regular",base.intention.binary = 0),type="p")
+a
+b
+c
+x
+```
+
+```{r}
+#reformatting into dataframe
+prob_df = data_frame(post_preference = c('Vegan','Vegetarian','Low','Moderate','Regular'),a,b,c,x) %>%
+  rename(panel_a = a,panel_b = b, panel_c = c, control = x)
+prob_df
+
+```
+
+
