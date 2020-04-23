@@ -19,8 +19,9 @@ Examples of data science projects completed at UC Berkeley and for fun. It will 
 
 	- Classify tweets that contain drug name mentions as containin mention of an adverse drug reaction or not.
 
-	- State of the art results achieved using a novel ensembling approach with BERT and two domain-specific BERT implementations (BioBERT and ClinicalBERT)
+	- State of the art results achieved using a novel ensembling approach with BERT and two domain-specific BERT \
+	implementations (BioBERT and ClinicalBERT)
 
 	- Keywords: Natural Language Processing, Deep Learning, BERT
 
-![alt text](https://github.com/leebean337/Data_Science_Examples/tree/master/ADR_Detection_Twitter_BERT/final_ensemble.jpg)
+![alt text](https://github.com/leebean337/Data_Science_Examples/blob/master/ADR_Detection_Twitter_BERT/final_ensemble.jpg)
