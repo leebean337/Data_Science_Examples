@@ -1,6 +1,6 @@
 # Data Science Examples
 
-Examples of data science projects completed at UC Berkeley and for fun. It will be updated as projects are complete
+Examples of data science projects completed at UC Berkeley. It will be updated as projects are completed.
 ----------------------------------------------------------------------------------------------------------------------
 
 ## [Solitaire](https://github.com/leebean337/Data_Science_Examples/blob/master/Solitaire_game/project.py)
@@ -32,7 +32,8 @@ Examples of data science projects completed at UC Berkeley and for fun. It will 
 
 ## [What kind of evidence will best motivate decreased global meat consumption?](https://github.com/leebean337/Data_Science_Examples/tree/master/Reducing_meat_consumption)
 
-	- Designed and implemented an experimental study to understand what kind of evidence may be most impactful to decrease intended meat consumption in the general population
+	- Designed and implemented an experimental study to understand what kind of evidence may be most impactful
+	to decrease intended meat consumption in the general population
 
 	- Tools included Qualtrics for survey design, implemented with a Mechanical Turk cohort, R for data analysis
 
