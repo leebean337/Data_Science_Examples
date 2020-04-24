@@ -19,7 +19,7 @@ Examples of data science projects completed at UC Berkeley and for fun. It will 
 
 	- Classify tweets that contain drug name mentions as containing mention of an adverse drug reaction or not.
 
-	- State of the art results achieved using a novel ensembling approach with BERT and two domain-specific BERT \
+	- State of the art results achieved using a novel ensembling approach with BERT and two domain-specific BERT
 	implementations (BioBERT and ClinicalBERT)
 
 	- Tools: Implemented with TensorFlow using cTPUs on Google Colab
@@ -44,11 +44,13 @@ Examples of data science projects completed at UC Berkeley and for fun. It will 
 
 ## [Housing price prediction](https://github.com/leebean337/Data_Science_Examples/tree/master/House_price_predictions)
 
-	- Predict housing prices based on a dataset with 2,930 observations in Ames, Iowa - achieved top 17% of Kaggle leaderboard.
+	- Predict housing prices based on a dataset with 2,930 observations in Ames, Iowa - achieved top 17% of
+	 Kaggle leaderboard.
 
 	- Tools: Python Scikit-Learn on Google Colab, Kaggle dataset
 
-	- Keywords: Machine learning, Feature Engineering, Linear Regression, Decision Tree, Random Forest, XGB Regressor, Support Vector Machine regressors
+	- Keywords: Machine learning, Feature Engineering, Linear Regression, Decision Tree, Random Forest, XGB Regressor,
+	Support Vector Machine regressors
 
 ----------------------------------------------------------------------------------------------------------------------
 
