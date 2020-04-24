@@ -1,4 +1,4 @@
-# House Price Predictions
+# What kind of evidence will best motivate decreased global meat consumption? An Experimental Study.
 Lee Moore, Sonal Thakkar, Peter Trenkwalder
 <br>UC Berkeley Master of Information and Data Science (MIDS)
 <br> W241 - Causality and Experiments
