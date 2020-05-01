@@ -1,17 +1,6 @@
 # Data Science Examples
 
 Examples of data science projects completed at UC Berkeley. It will be updated as projects are completed.
-----------------------------------------------------------------------------------------------------------------------
-
-## [Solitaire](https://github.com/leebean337/Data_Science_Examples/blob/master/Solitaire_game/project.py)
-
-	- Classic Solitaire game with a 52-card deck
-
-	- Simple user interface asking for position of card to move and position of destination
-
-	- Keywords: Python Script, object-oriented programming
-
-![alt text](https://github.com/leebean337/Data_Science_Examples/blob/master/Solitaire_game/solitaire_image.jpg)
 
 ----------------------------------------------------------------------------------------------------------------------
 
@@ -55,7 +44,7 @@ Examples of data science projects completed at UC Berkeley. It will be updated a
 
 ----------------------------------------------------------------------------------------------------------------------
 
-## [Flight delay prediction](https://github.com/leebean337/Data_Science_Examples/tree/master/House_price_predictions)
+## [Flight delay prediction](https://github.com/leebean337/Data_Science_Examples/tree/master/Flight_delay_predictions)
 
 	- Predicting flight delays based on a dataset of over 32 million US commercial flights
 
@@ -64,3 +53,15 @@ Examples of data science projects completed at UC Berkeley. It will be updated a
 	- Keywords: Machine learning at scale, logistic regression, decision tree, random forest, bagging, ensembling
 
 ![alt text](https://github.com/leebean337/Data_Science_Examples/blob/master/Flight_delay_predictions/algorithm_exploration.jpg)
+
+----------------------------------------------------------------------------------------------------------------------
+
+## [Solitaire](https://github.com/leebean337/Data_Science_Examples/blob/master/Solitaire_game/project.py)
+
+	- Classic Solitaire game with a 52-card deck
+
+	- Simple user interface asking for position of card to move and position of destination
+
+	- Keywords: Python Script, object-oriented programming
+
+![alt text](https://github.com/leebean337/Data_Science_Examples/blob/master/Solitaire_game/solitaire_image.jpg)
